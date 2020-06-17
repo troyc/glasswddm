@@ -25,36 +25,6 @@ typedef struct dh_add_display      AddDisplay;
 typedef struct dh_display_info     DisplayInfo;
 typedef struct dh_remove_display   RemoveDisplay;
 
-enum framebuffer_type {
-                       HD_FRAMEBUFFER,
-                       FOURK_FRAMEBUFFER,
-                       STATIC_FRAMEBUFFER,
-                       INVALID_FRAMEBUFFER
-};
-
-/**
-* Stores a "size hint", which relates a Display Handler key to a desired
-* resolution. Used to determine the resolution upon creating a new display.
-*/
-struct display_size_hint {
-
-	//If this entry is in use.
-	BOOL present;
-
-    //The Display Handler key-- which uniquely identifies the given display.
-    UINT32 key;
-
-	//The desired X and Y of the given display.
-    UINT32 x;
-    UINT32 y;
-
-    //The desired width and height of the given display.
-    UINT32 width;
-    UINT32 height;
-
-    enum framebuffer_type buffer_type;
-};
-
 typedef struct  {
     UINT32 width;
     UINT32 height;
@@ -169,7 +139,9 @@ public:
     int         blank_display(BOOLEAN bSleep, BOOLEAN blanked);
     POINTER_BUFFER * pointer() { return _pointer; }
     MutexHelper *fb_mutex() { return _fb_mutex; }
+    MutexHelper *cursor_mutex() { return _display_lock; }
     MutexHelper *mode_mutex() { return _mode_mutex; }
+    MutexHelper *display_lock() { return _display_lock; }
     UINT32      key() { return _key; }
     void        set_key(UINT32 key) { _key = key; }
     BOOL        blanked() { return _blanked; }
@@ -177,17 +149,11 @@ public:
     void        update_wake_state();
     void        helper_disconnect();
     ULONG       source() { return _SourceId; }
-    enum framebuffer_type buffer_type() { return _buffer_type; }
-    void        set_buffer_type(enum framebuffer_type buffer_type) { _buffer_type = buffer_type; }
-    BOOL        buffer_needs_resize() { return _buffer_needs_resize; }
-    void        set_buffer_needs_resize(BOOL buffer_needs_resize) { _buffer_needs_resize = buffer_needs_resize; }
     void        update_layout(RECT rect);
     void        update_layout(DisplayInfo* display_info);
     BOOL        pending_dpc() { return _pending; }
     void        reset_dpc() { _pending = FALSE; }
     void        set_dpc() { _pending = TRUE; }
-	int         event_port() { return _event_port; }
-	void        set_event_port(int event_port) { _event_port = event_port; }
 private:
     void        set_event();
     void        initialize_available_resolutions();
@@ -207,11 +173,8 @@ private:
     UINT32                       _key;
     BOOL                         _blanked;
     ULONG                        _SourceId;
-    enum framebuffer_type        _buffer_type;
-    BOOL                         _buffer_needs_resize;
     POINT                        _layout;
     BOOL                         _pending;
-	int                          _event_port;
 };
 typedef struct _Mode
 {

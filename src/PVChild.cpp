@@ -1,15 +1,15 @@
-#include <ntddk.h>
-#include "bdd.hxx"
 extern "C"
 {
 #include <pv_display_helper.h>
 }
+#include <ntddk.h>
+#include "bdd.hxx"
 #include "PVChild.h"
 
 //Specify whether hints should be ignored.
 //If set, this ignores all display size hints and uses the default resolution.
 static bool ignore_hints = FALSE;
-#define BYTES_PER_PIXEL 4
+#define FB_BPP 32
 #define FOURK_FRAMEBUFFER_WIDTH 3840
 #define FOURK_FRAMEBUFFER_HEIGHT 2160
 #define FOURK_FRAMEBUFFER_STRIDE 15360
@@ -23,6 +23,26 @@ static bool ignore_hints = FALSE;
 static const size_t default_width_pixels = 1024;
 static const size_t default_height_pixels = 768;
 
+/**
+* Stores a "size hint", which relates a Display Handler key to a desired
+* resolution. Used to determine the resolution upon creating a new display.
+*/
+struct display_size_hint {
+
+	//If this entry is in use.
+	BOOL present;
+
+    //The Display Handler key-- which uniquely identifies the given display.
+    uint32_t key;
+
+	//The desired X and Y of the given display.
+    uint32_t x;
+    uint32_t y;
+    
+    //The desired width and height of the given display.
+    uint32_t width;
+    uint32_t height;
+};
 static struct display_size_hint display_hints[PV_MAX_DISPLAYS];
 
 void sleep(UINT32 sec)
@@ -34,7 +54,7 @@ void sleep(UINT32 sec)
 
 /**
 /* Display handler error callback.
- * Disconnects the child device
+ * Disconnects the child device 
  * @param DHDisplay pointer to display handler object
 **/
 static void dhcb_handle_display_error(DHDisplay * display, void * opaque)
@@ -43,10 +63,42 @@ static void dhcb_handle_display_error(DHDisplay * display, void * opaque)
     if(!display->driver_data)
         return;
     PVChild * child = static_cast<PVChild *>(opaque);
-    HoldScopedMutex DisplayMutex(child->primary()->DisplayHelperMutex(), __FUNCTION__, MAX_CHILDREN);
-    BDD_LOG_ERROR("XENWDDM!%s error for display key %u \n", __FUNCTION__, display->key);
+    BDD_LOG_ERROR("XENWDDM!%s error for display key %u \n", 
+        __FUNCTION__, display->key);
     child->helper_disconnect();
-	display->connected = false;
+
+}
+
+static int dh_reconnect_display(
+    struct pv_display * display,
+    struct dh_add_display * request)
+{
+    INT32 rc = display->reconnect(display, request, 0);
+
+    if(unlikely(rc))
+    {
+        BDD_LOG_ERROR("XenWddm!%s Failed to perform reconnect\n", __FUNCTION__);
+        return rc;
+    }
+
+    //In a reconnect scenario for Windows, these keys should be the same
+    if(display->key != request->key)
+    {
+        BDD_LOG_ERROR("XenWddm!%s display/request key mismatch. Trying to reconnect on a different display?\n",
+            __FUNCTION__);
+    }
+
+    rc = display->change_resolution(display, display->width, display->height, display->stride);
+
+    if(unlikely(rc))
+    {
+        BDD_LOG_ERROR("XenWddm:%s failed to change resolution.\n", __FUNCTION__);
+        return -EAGAIN;
+    }
+
+    display->invalidate_region(display, 0, 0, display->width, display->height);
+    display->set_cursor_visibility(display, display->cursor.visible);
+    return 0;
 }
 
 static BASIC_DISPLAY_DRIVER * dp_validate_request_parameters(DHProvider * provider, PVOID request, const char * function)
@@ -115,29 +167,10 @@ bool verify_new_hint(BASIC_DISPLAY_DRIVER * pBDD, UINT32 key, UINT32 width, UINT
     return            TRUE;
 }
 
-void dp_set_buffer_size(BASIC_DISPLAY_DRIVER * pBDD, DisplayInfo display, display_size_hint hint)
-{
-    PVChild *pChild(ChildFromKey(pBDD, display.key));
-
-    if (!pChild) {
-        return;
-    }
-
-    if (pChild->buffer_type() == hint.buffer_type) {
-        if (pChild->buffer_type() == STATIC_FRAMEBUFFER) {
-            pChild->set_buffer_needs_resize(true);
-        }
-        return;
-    }
-
-    pChild->set_buffer_type(hint.buffer_type);
-    pChild->set_buffer_needs_resize(true);
-}
-
 INT32 dp_set_display_hint(DHProvider * provider, BASIC_DISPLAY_DRIVER * pBDD, DisplayInfo display)
 {
     INT32 free_index = -1;
-
+    
     if(pBDD == NULL)
     {
         BDD_LOG_ERROR("XenWddm!%s NULL BDD.\n", __FUNCTION__);
@@ -178,18 +211,6 @@ INT32 dp_set_display_hint(DHProvider * provider, BASIC_DISPLAY_DRIVER * pBDD, Di
 			display_hints[i].y = display.y;
 			display_hints[i].width = display.width;
 			display_hints[i].height = display.height;
-
-            if (display.key == 1) {
-                if (display.width > HD_FRAMEBUFFER_WIDTH || display.height > HD_FRAMEBUFFER_HEIGHT) {
-                    display_hints[i].buffer_type = FOURK_FRAMEBUFFER;
-                } else {
-                    display_hints[i].buffer_type = HD_FRAMEBUFFER;
-                }
-            } else {
-                display_hints[i].buffer_type = STATIC_FRAMEBUFFER;
-            }
-
-            dp_set_buffer_size(pBDD, display, display_hints[i]);
             return STATUS_SUCCESS;
         }
     }
@@ -202,18 +223,6 @@ INT32 dp_set_display_hint(DHProvider * provider, BASIC_DISPLAY_DRIVER * pBDD, Di
 		display_hints[free_index].y = display.y;
 		display_hints[free_index].width = display.width;
 		display_hints[free_index].height = display.height;
-
-        if (display.key == 1) {
-            if (display.width > HD_FRAMEBUFFER_WIDTH || display.height > HD_FRAMEBUFFER_HEIGHT) {
-                display_hints[free_index].buffer_type = FOURK_FRAMEBUFFER;
-            } else {
-                display_hints[free_index].buffer_type = HD_FRAMEBUFFER;
-            }
-        } else {
-            display_hints[free_index].buffer_type = STATIC_FRAMEBUFFER;
-        }
-
-        dp_set_buffer_size(pBDD, display, display_hints[free_index]);
         return STATUS_SUCCESS;
     }
 
@@ -301,6 +310,7 @@ DHDisplay * dp_find_display_target(BASIC_DISPLAY_DRIVER * pBDD, UINT32 key, ULON
 static void dp_set_display_hints(BASIC_DISPLAY_DRIVER *pBDD, DHProvider * provider,
     DisplayInfo * displays, UINT32 num_displays)
 {
+    BDD_TRACE_KEY(displays->key);
     DisplayInfo     newDisplayList[MAX_CHILDREN];
     UINT32          newDisplays(0);
     bool            bReAdvertiseCaps(false);
@@ -322,6 +332,8 @@ static void dp_set_display_hints(BASIC_DISPLAY_DRIVER *pBDD, DHProvider * provid
                 if(pChild && pChild->display_handler())
                 {
                     pChild->update_layout(&displays[i]);
+                    BDD_LOG_EVENT("XENWDDM!%s: setting %d: %d (%d x %d)\n", __FUNCTION__,
+                        pChild->target_id(), displays[i].key, displays[i].width, displays[i].height);
                     pChild->update_available_resolutions(displays[i].width, displays[i].height);
                 }
                 newDisplayList[newDisplays++] = displays[i];
@@ -366,24 +378,22 @@ void dp_reconnect_display(DHDisplay * existing_display, PVChild * pChild, AddDis
         BDD_LOG_ERROR("XENWDDM!%s No child here\n", __FUNCTION__);
         return;
     }
+    BDD_TRACE_KEY(existing_display->key);
     if(requires_reconnect)
     {
-        BDD_LOG_EVENT("XENWDDM!%s Host wants to reconnect existing %ux%u source %u with key(0x%x) port:%d.\n",
+        BDD_LOG_EVENT("XENWDDM!%s Host wants to reconnect existing %ux%u source %u with key(0x%x).\n",
             __FUNCTION__,   (UINT32) existing_display->width, (UINT32) existing_display->height,
-            (UINT32)pChild->target_id(), (UINT32) request->key, request->event_port);
+            (UINT32)pChild->target_id(), (UINT32) request->key);
         pChild->reset_guest_mode();
-        if (dh_reconnect_display(existing_display, request)) {
-            existing_display->connected = false;
-        }
+        dh_reconnect_display(existing_display, request);
     }
     else
     {
-        BDD_LOG_EVENT("XENWDDM!%s Host wants to perform a mode set of (%d x %d) for %d:0x%x port:%d.\n", __FUNCTION__,
-            width, height, pChild->target_id(),pChild->key(), request->event_port);
+        BDD_LOG_EVENT("XENWDDM!%s Host wants to perform a mode set of (%d x %d) for %d:%d.\n", __FUNCTION__,
+            width, height, pChild->target_id(),pChild->key());
         dh_react_host_modeset(existing_display, existing_display->width, existing_display->height);
     }
     pChild->load_cursor_image();
-	pChild->set_event_port(request->event_port);
 }
 
 DHDisplay * dh_create_display(DHProvider * provider, AddDisplay * request, UINT32 width, UINT32 height)
@@ -391,19 +401,19 @@ DHDisplay * dh_create_display(DHProvider * provider, AddDisplay * request, UINT3
     DHDisplay * display;
     INT32 rc;
 
-    // If the display is in windowed mode, create a the biggest display we can handle.
-    if (request->key == 1) {
-        if (width > HD_FRAMEBUFFER_WIDTH || height > HD_FRAMEBUFFER_HEIGHT) {
-            rc = provider->create_display(provider, &display, request, FOURK_FRAMEBUFFER_WIDTH,
-                                          FOURK_FRAMEBUFFER_HEIGHT, FOURK_FRAMEBUFFER_STRIDE, NULL);
-        } else {
-            rc = provider->create_display(provider, &display, request, HD_FRAMEBUFFER_WIDTH,
-                                          HD_FRAMEBUFFER_HEIGHT, HD_FRAMEBUFFER_STRIDE, NULL);
-        }
-    } else {
-        rc = provider->create_display(provider, &display, request, width, height, width*BYTES_PER_PIXEL, NULL);
+    //normal HD.  Otherwise, allocate an HD buffer.  This logic is sane because we set
+    //actual resolution to the values DH sends us. These stay in lockstep with 
+    //Windows' perspective
+    if(width > HD_FRAMEBUFFER_WIDTH || height > HD_FRAMEBUFFER_HEIGHT)
+    {
+        rc = provider->create_display(provider, &display, request, FOURK_FRAMEBUFFER_WIDTH,
+            FOURK_FRAMEBUFFER_HEIGHT, FOURK_FRAMEBUFFER_STRIDE, NULL);
     }
-
+    else
+    {
+        rc = provider->create_display(provider, &display, request, HD_FRAMEBUFFER_WIDTH,
+            HD_FRAMEBUFFER_HEIGHT, HD_FRAMEBUFFER_STRIDE, NULL);
+    }
 
     //If we weren't able to create the display object, we won't be able to bring
     //up a framebuffer. Fail out!
@@ -483,76 +493,7 @@ DHDisplay * dp_create_display(PVChild * pChild, DHProvider * provider, AddDispla
             sleep(1);
         }
     }
-	pChild->set_event_port(request->event_port);
     return display;
-}
-
-static int dh_reconnect_display(DHProvider * provider,
-                                PVChild * pChild,
-                                struct pv_display * display,
-                                struct dh_add_display * request,
-                                UINT32 width,
-                                UINT32 height)
-{
-    if (pChild->buffer_needs_resize()) {
-        DHDisplay * new_display;
-        new_display = dp_create_display(pChild, provider, request, width, height);
-        return 0;
-    }
-    INT32 rc = display->reconnect(display, request, 0);
-
-    if(unlikely(rc))
-    {
-        BDD_LOG_ERROR("XenWddm!%s Failed to perform reconnect\n", __FUNCTION__);
-        return rc;
-    }
-
-    //In a reconnect scenario for Windows, these keys should be the same
-    if(display->key != request->key)
-    {
-        BDD_LOG_ERROR("XenWddm!%s display/request key mismatch. Trying to reconnect on a different display?\n",
-            __FUNCTION__);
-    }
-
-    rc = display->change_resolution(display, display->width, display->height, display->stride);
-
-    if(unlikely(rc))
-    {
-        BDD_LOG_ERROR("XenWddm:%s failed to change resolution.\n", __FUNCTION__);
-        return -EAGAIN;
-    }
-
-    display->invalidate_region(display, 0, 0, display->width, display->height);
-    display->set_cursor_visibility(display, display->cursor.visible);
-    return 0;
-}
-
-void dp_reconnect_display(DHProvider * provider, DHDisplay * existing_display,
-                          PVChild * pChild, AddDisplay * request, BOOL connected,
-                          UINT32 width, UINT32 height)
-{
-    BOOL        requires_reconnect = ( (request->key != existing_display->key) || !connected);
-    if(!pChild)
-    {
-        BDD_LOG_ERROR("XENWDDM!%s No child here\n", __FUNCTION__);
-        return;
-    }
-    BDD_TRACE_KEY(existing_display->key);
-    if(requires_reconnect)
-    {
-        BDD_LOG_EVENT("XENWDDM!%s Host wants to reconnect existing %ux%u source %u with key(0x%x).\n",
-            __FUNCTION__,   (UINT32) existing_display->width, (UINT32) existing_display->height,
-            (UINT32)pChild->target_id(), (UINT32) request->key);
-        pChild->reset_guest_mode();
-        dh_reconnect_display(provider, pChild, existing_display, request, width, height);
-    }
-    else
-    {
-        BDD_LOG_EVENT("XENWDDM!%s Host wants to perform a mode set of (%d x %d) for %d:%d.\n", __FUNCTION__,
-            width, height, pChild->target_id(),pChild->key());
-        dh_react_host_modeset(existing_display, width, height);
-    }
-    pChild->load_cursor_image();
 }
 
 void dpcb_add_display_request(DHProvider * provider, AddDisplay * request)
@@ -564,10 +505,9 @@ void dpcb_add_display_request(DHProvider * provider, AddDisplay * request)
     DHDisplay *     existing_display = NULL;
     BASIC_DISPLAY_DRIVER *  pBDD;
     PVChild * pChild = NULL;
-
-	BDD_LOG_ERROR("Xenwddm!%s: add key:event port 0x%x:%d\n", __FUNCTION__, request->key, request->event_port);
-    
-	//Validate parameters
+    BDD_TRACER;
+    BDD_LOG_ERROR("Xenwddm!%s: add event port %d\n", __FUNCTION__, request->event_port);
+    //Validate parameters
     if((pBDD = dp_validate_request_parameters(provider, (PVOID) request, __FUNCTION__)) == NULL)
     {
         return;
@@ -581,15 +521,8 @@ void dpcb_add_display_request(DHProvider * provider, AddDisplay * request)
     if(existing_display)
     {
         pChild = PVCHILD(existing_display);
-		//If this child is still connected to another port, we need to delay this connection
-		//until the current port is disconnected.
-		if (existing_display->connected && (pChild->event_port() != request->event_port)){
-			BDD_LOG_ERROR("XenWddm!%s: OUT OF ORDER OPERATION for 0x%x, with current port/ new port %d / %d\n", __FUNCTION__,
-				request->key, pChild->event_port(), request->event_port);
-			return;
-		}
         connected = pBDD->ChildConnected(SourceId) && existing_display->connected;
-        dp_reconnect_display(provider, existing_display, pChild, request, connected, width, height);
+        dp_reconnect_display(existing_display, pChild, request, connected, width, height);
         return;
     }
 
@@ -661,18 +594,17 @@ void POINTER_BUFFER::clear()
 }
 
 PVChild::PVChild(BASIC_DISPLAY_DRIVER * pBDD, ULONG SourceId /*= 0*/)
-	: _pBDD(pBDD)
-	, _TargetId(SourceId)
-	, _display(NULL)
-	, _connected(FALSE)
-	, _display_lock(NULL)
-	, _num_resolutions(0)
-	, _cursor_mutex(NULL)
-	, _key(0)
-	, _blanked(false)
-	, _SourceId(SourceId)
-	, _pending(FALSE)
-	, _event_port(0xffffffff)
+    : _pBDD(pBDD)
+    , _TargetId(SourceId)
+    , _display(NULL)
+    , _connected(FALSE)
+    , _display_lock(NULL)
+    , _num_resolutions(0)
+    , _cursor_mutex(NULL)
+    , _key(0)
+    , _blanked(false)
+    , _SourceId(SourceId)
+    , _pending(FALSE)
 {
     //Create mutex helpers for child's framebuffer and pointer data
     _fb_mutex = (MutexHelper *) new (NonPagedPoolNx) MutexHelper( );
@@ -753,6 +685,7 @@ void PVChild::update_available_resolutions(UINT32 width, UINT32 height)
     //Iterate over resolutions until we reach one that is out of bounds (equal or greater)
     for(i = 0; i < _num_resolutions; i++)
     {
+        BDD_LOG_ERROR("Base resolution is (%d x %d)\n", _available_resolutions[i].width, _available_resolutions[i].height);
         UINT32 resolution_fb(pixels_to_bytes(_available_resolutions[i].width) * _available_resolutions[i].height);
         if ( resolution_fb> framebuffer_size)
         {
@@ -831,6 +764,7 @@ void PVChild::update_connection_status(BOOL connected)
     BDD_TRACE_KEY(_key);
     HoldScopedMutex fb_mutex(_fb_mutex, __FUNCTION__, _TargetId);
     _connected = connected;
+    BDD_LOG_EVENT("XENWDDM!%s: new status is %s\n", __FUNCTION__, connected ? "true" : "false");
     _pBDD->UpdateConnection(_TargetId, _connected);
     if (connected)
         load_cursor_image();
@@ -851,6 +785,8 @@ void PVChild::register_display(DHDisplay * display, UINT32 width, UINT32 height)
 
 void PVChild::reset_guest_mode()
 {
+    BDD_TRACE_CHILD(this);
+
     HoldScopedMutex fb_mutex(_fb_mutex, __FUNCTION__, _TargetId);
 
     //Update power state

@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\configs.props" />
+  <ItemGroup Label="WrappedTaskItems">
+    <ResourceCompile Include="..\..\src\xenwddm.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\src\BDD.cxx" />
+    <ClCompile Include="..\..\src\BDD_DDI.cxx" />
+    <ClCompile Include="..\..\src\BDD_DMM.cxx" />
+    <ClCompile Include="..\..\src\BDD_Util.cxx" />
+    <ClCompile Include="..\..\src\BltFuncs.cxx" />
+    <ClCompile Include="..\..\src\BltHw.cxx" />
+    <ClCompile Include="..\..\src\memory.cxx" />
+    <ClCompile Include="..\..\src\PVChild.cpp" />
+    <None Include="..\..\src\xenwddm_edid_1280_1024.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\src\bdd.hxx" />
+    <ClInclude Include="..\..\src\BDD_DMM.hxx" />
+    <ClInclude Include="..\..\src\bdd_errorlog.hxx" />
+    <ClInclude Include="..\..\src\PVChild.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{667E9655-203F-4300-A246-8D5E88D7B571}</ProjectGuid>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <MinimumVisualStudioVersion>12.0</MinimumVisualStudioVersion>
+    <RootNamespace>xenwddm</RootNamespace>
+    <TestCertificate>..\..\src\glasswddm.pfx</TestCertificate>
+    <IvcDir>$(MSBuildProjectDirectory)\..\..\..\ivc\</IvcDir>
+    <PVDisplayHelperDir>$(MSBuildProjectDirectory)\..\..\..\pv-display-helper\</PVDisplayHelperDir>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>KMDF</DriverType>
+    <DriverTargetPlatform>Desktop</DriverTargetPlatform>
+    <SupportsPackaging>true</SupportsPackaging>
+    <ALLOW_DATE_TIME>1</ALLOW_DATE_TIME>
+  </PropertyGroup>
+  <Import Project="..\targets.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup />
+  <PropertyGroup>
+    <RunCodeAnalysis>true</RunCodeAnalysis>
+    <EnableInf2cat>false</EnableInf2cat>
+    <IntDir>..\$(ProjectName)\$(ConfigurationName)\$(Platform)\</IntDir>
+    <OutDir>..\$(ConfigurationName)\$(Platform)\</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WppEnabled>true</WppEnabled>
+      <WppRecorderEnabled>true</WppRecorderEnabled>
+      <WppKernelMode>true</WppKernelMode>
+      <AdditionalIncludeDirectories>$(PVDisplayHelperDir);$(SDK_INC_PATH);$(IvcDir)include;$(IvcDir)include\ks;$(IvcDir)include\us\platform\windows;$(IvcDir)include\us;$(IvcDir)include\core;$(IvcDir)include\ks\platform;$(IvcDir)include\ks\platform\windows;$(IvcDir)src\data-structures;%(AdditionalIncludeDirectories);</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>KERNEL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <WarningLevel>EnableAllWarnings</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <DisableSpecificWarnings>4255;4668;4820;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <EnablePREfast>true</EnablePREfast>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <AdditionalOptions>/Qspectre %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>$(IvcDir)ivc\$(Platform)\ivc.lib;$(PVDisplayHelperDir)display-driver-helper\$(Platform)\display-driver-helper.lib;displib.lib;wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <FilesToPackage Include="$(TargetPath)" />
+    <FilesToPackage Include="$(OutDir)$(TargetName).pdb" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
