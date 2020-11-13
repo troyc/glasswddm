@@ -7,12 +7,13 @@
 * Copyright (c) 2010 Microsoft Corporation
 \**************************************************************************/
 
-#include "BDD.hxx"
-#include "PVChild.h"
 extern "C"
 {
 #include <pv_display_helper.h>
 }
+#include "BDD.hxx"
+#include "PVChild.h"
+
 #define DEBUG_NO_PARAVIRT 1
 
 #define DELETE_THIS(member) \

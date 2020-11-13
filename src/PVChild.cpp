@@ -1,9 +1,9 @@
-#include <ntddk.h>
-#include "bdd.hxx"
 extern "C"
 {
 #include <pv_display_helper.h>
 }
+#include <ntddk.h>
+#include "bdd.hxx"
 #include "PVChild.h"
 
 //Specify whether hints should be ignored.
