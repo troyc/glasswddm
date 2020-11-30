@@ -74,7 +74,7 @@
       <AdditionalOptions>/Qspectre %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(OutDir)\ivc.lib;$(OutDir)\display-driver-helper.lib;displib.lib;wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(IvcDir)ivc\$(Platform)\ivc.lib;$(PVDisplayHelperDir)display-driver-helper\$(Platform)\display-driver-helper.lib;displib.lib;wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
