@@ -5,9 +5,6 @@
     <ResourceCompile Include="..\..\src\xenwddm.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="..\..\src\xenwddm.inf" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="..\..\src\BDD.cxx" />
     <ClCompile Include="..\..\src\BDD_DDI.cxx" />
     <ClCompile Include="..\..\src\BDD_DMM.cxx" />
